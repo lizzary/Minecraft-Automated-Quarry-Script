@@ -1,506 +1,240 @@
---Global Setting--
---256RPM: 0.25
---112RPM: 0.4
---96RPM: 0.5
-PowerAxisUnLockTime = 0.25
-RelocationWaittingTime = 4
-DrillDownardWaittingTime = 1
---------------------------------
---Cable
-OutputCables = {
-    ["Gearshift"] = colors.white,
-    ["powerAxisUnLock"] = colors.green,
-    ["drillDownward"] = colors.orange,
-    ["storageInterfaceLock"] = colors.brown
-}
-InputCables = {
-    ["workAxisStartObserver"] = colors.red,
-    ["workAxisEndObserver"] = colors.magenta,
-    ["powerAxisStartObserver"] = colors.blue,
-    ["powerAxisEndObserver"] = colors.purple,
-    ["endPointObserver"] = colors.black
-}
---Parameter
-DirectionOfPowerAxis = ""
+
+--名词解释：
+--起重机杆：机械动力中用于承载起重机的杆子
+--采矿头/起重机：由起重机、滑轮绳索、机壳、箱子和钻头组成的采矿主体部分
+--采矿框架：采矿头+起重机杆
+--可编程齿轮箱、反转齿轮箱、无线信号终端、手摇曲柄：机械动力中的中的物品
+
+--使用说明：
+--本代码中，顺时针（"clockwise")定义为在不打开反转齿轮箱的情况下，起重机杆朝北（原点/动力输入 朝南）：
+--直接转动手摇曲柄时：
+--采矿头向动力输入的方向移动
+--采矿头下移
+--采矿框架向远离动力输入的方向移动
+--逆时针（"counterclockwise")定义为在不打开反转齿轮箱的情况下，起重机杆朝北（原点/动力输入 朝南）：
+--按住shift转动手摇曲柄时：
+--起重机向远离动力输入的方向移动
+--采矿头上移
+--采矿框架向动力输入的方向移动
+
+--重要：动力输入至少需要64rpm以上
+--重要：动力输入时需要确保旋转方向**在未启动程序之前**，元件的运动符合顺时针("clockwise")和逆时针("counterclockwise")的定义
+--重要：采矿框架的移动不会根据起重机杆的朝向进行自适应，应修改可编程齿轮箱内的旋转方向使其符合顺时针（"clockwise")和逆时针("counterclockwise")的定义
+--      且采矿框架只会固定朝远离动力源的方向移动，如果需要收回采矿框架，需使用手摇曲柄
+
+--注意事项：
+--无论起重机杆朝向哪边，直接转动手摇曲柄时起重机都会向动力输入的方向移动
+--可编程齿轮箱并不精确，连接可编程齿轮箱的转速不要过快，推荐100rpm以内
+
+--必填参数
+--起重机杆的长度，单位：格
+gantry_shaft_length = 12
+--采矿头（需要是正方形）边长，单位：格
+mining_head_size = 3
+--起重机杆朝向，选项为：north, south, west, east
+direction = 'north'
+--采矿头下挖等待时间，单位：秒
+mining_time = 5
+--采矿头上升等待时间，单位：秒
+rising_time = 5
+--采矿框架长度（活塞杆的长度）
+mining_frame_length = 10
+----------------------------
+--选填参数，元件红石与电脑连接的方向，取决于 无线信号终端/红石线路 的摆放，选项为对于电脑六个面的：top,back,left,right
+--起重机杆可编程齿轮箱控制位于电脑左边
+gantry_shaft_switch = "left"
+--采矿头上下移动离合器位于电脑右边
+mining_head_clutch = "right"
+--反转齿轮箱控制位于电脑上方
+reverser = "top"
+--采矿头动力输入位于电脑后方
+mining_head_power_switch = "back"
+--采矿框架移动可编程齿轮箱
+mining_frame_switch = "front"
 
 
-
-function getCurrentOutputCableStage()
-    local CableStage = {}
-    for key,_ in pairs(OutputCables) do
-        CableStage[key] = false
+--代码部分
+--辅助函数
+--反转齿轮箱控制
+function reverser_control(action)
+    --action：字符串，"on"为激活指定位置的红石信号，"off"为关闭指定位置的红石信号
+    if action == "on" then
+        redstone.setOutput(reverser, true)
+    elseif action == "off" then
+        redstone.setOutput(reverser, false)
     end
-
-
-    local OutputCablesColorCode = redstone.getBundledOutput("Back")
-
-    local sortCables = {}
-    local keysArray = {}
-    for key,_ in pairs(OutputCables) do
-        table.insert(keysArray,key)
-    end
-
-    local function compareValues(key1,key2)
-        return OutputCables[key1] >= OutputCables[key2]
-    end
-
-    table.sort(keysArray,compareValues)
-
-    for _,key in pairs(keysArray) do
-        if OutputCablesColorCode - OutputCables[key] >= 0 then
-            OutputCablesColorCode = OutputCablesColorCode - OutputCables[key]
-            CableStage[key] = true
-        end
-    end
-    return CableStage
-                
 end
-
-function getCurrentInputCableStage()
-    local Cables = {}
-    for key,_ in pairs(InputCables) do
-        Cables[key] = InputCables[key]
+--起重机杆可编程齿轮箱控制
+function gantry_shaft_switch_control(action)
+    --action：字符串，"on"为激活指定位置的红石信号，"off"为关闭指定位置的红石信号
+    if action == "on" then
+        redstone.setOutput(gantry_shaft_switch, true)
+    elseif action == "off" then
+        redstone.setOutput(gantry_shaft_switch, false)
     end
-
-    for key,value in pairs(Cables) do
-        Cables[key] = redstone.testBundledInput("back",InputCables[key])
-    end
-
-    return Cables
 end
-
-
-function OpenWire(outputWire)
-    local stage = getCurrentOutputCableStage()
-
-    if stage[outputWire] == true then
-        return
+--采矿头上下移动离合器控制
+function mining_head_movement_clutch_control(action)
+    --action：字符串，"on"为激活指定位置的红石信号，"off"为关闭指定位置的红石信号
+    if action == "on" then
+        redstone.setOutput(mining_head_clutch, true)
+    elseif action == "off" then
+        redstone.setOutput(mining_head_clutch, false)
     end
-
-    stage[outputWire] = true
-    local openCode = 0
-    for CablesName,isOpen in pairs(stage) do
-        if isOpen == true then
-            openCode = openCode + OutputCables[CablesName]
-        end
-    end
-    
-    redstone.setBundledOutput("back",openCode)
-
 end
-
-function CloseWire(outputWire)
-    local stage = getCurrentOutputCableStage()
-
-    if stage[outputWire] == false then
-        return
+--采矿头动力输入控制
+function mining_head_power_switch_control(action)
+    --action：字符串，"on"为激活指定位置的红石信号，"off"为关闭指定位置的红石信号
+    if action == "on" then
+        redstone.setOutput(mining_head_power_switch, true)
+    elseif action == "off" then
+        redstone.setOutput(mining_head_power_switch, false)
     end
-
-    stage[outputWire] = false
-    local openCode = 0
-    for CablesName,isOpen in pairs(stage) do
-        if isOpen == true then
-            openCode = openCode + OutputCables[CablesName]
-        end
-    end
-
-    redstone.setBundledOutput("back",openCode)
 end
-
-function ChangeWireState(outputWire)
-    local stage = getCurrentOutputCableStage()
-
-    if stage[outputWire] == true then
-        CloseWire(outputWire)
-    end
-
-    if stage[outputWire] == false then
-        OpenWire(outputWire)
+--采矿框架可编程齿轮箱控制
+function mining_frame_switch_control(action)
+    --action：字符串，"on"为激活指定位置的红石信号，"off"为关闭指定位置的红石信号
+    if action == "on" then
+        redstone.setOutput(mining_frame_switch, true)
+    elseif action == "off" then
+        redstone.setOutput(mining_frame_switch, false)
     end
 end
 
-function WaitingInputSignal(name)
-    --print("Waiting for the signal from ",name," ......")
-    local isActive = false
-    while(isActive == false) do
-        isActive = getCurrentInputCableStage()[name]
-        sleep(0.1)
-    end
-    --print("Received Signal from ",name," !")
-end
+--行为定义
 
-function AutoInitSetting()
-    print("--------------------")
-    print("The automatic initialization is in progress...")
+--采矿头沿着起重机杆移动，移动的格数取决于可编程齿轮箱里的设置（推荐设置为和mining_head_size相同的值）
+function mining_head_move_along_gantry_shaft(rotate)
+    --rotate：字符串，"clockwise"为顺时针方向移动，"counterclockwise"为逆时针方向移动，其他值则不进行任何操作
 
-    CloseWire("Gearshift")
-    CloseWire("powerAxisUnLock")
-    CloseWire("drillDownward")
-    OpenWire("storageInterfaceLock")
-
-    local SettingFile = io.open("InitSetting.txt", "r")
-    if not SettingFile then
-        SettingFile = io.open("InitSetting.txt","w")
-    else
-        print("InitSetting.txt found! Perform Fast resetting ...")
-
-        local ChangeWire = SettingFile:read()
-        local PowerAxisDir = SettingFile:read()
-        
-        if ChangeWire == "ChangeWireState=true" then
-            if PowerAxisDir == "DirectionOfPowerAxis=NorthOrEast" then
-                print("Reset the location of the drill in power axis ...")
-                OpenWire("powerAxisUnLock")
-                ChangeWireState("Gearshift")
-                sleep(RelocationWaittingTime)
-
-                print("Reset the location of the drill in working axis ...")
-                CloseWire("powerAxisUnLock")
-                ChangeWireState("Gearshift")
-                sleep(RelocationWaittingTime)
-                DirectionOfPowerAxis = "NorthOrEast"
-                print("Reset done!")
-            end
-
-            if PowerAxisDir == "DirectionOfPowerAxis=SouthOrWest" then
-                print("Reset the location of the drill in power axis ...")
-                OpenWire("powerAxisUnLock")
-                ChangeWireState("Gearshift")
-                sleep(RelocationWaittingTime)
-
-                print("Reset the location of the drill in working axis ...")
-                CloseWire("powerAxisUnLock")
-                sleep(RelocationWaittingTime)
-                DirectionOfPowerAxis = "SouthOrWest"
-                
-                print("Reset done!")
-            end
-
-        end
-
-        if ChangeWire == "ChangeWireState=false" then
-
-            if PowerAxisDir == "DirectionOfPowerAxis=SouthOrWest" then
-                print("Reset the location of the drill in power axis ...")
-                OpenWire("powerAxisUnLock")
-                sleep(RelocationWaittingTime)
-
-                print("Reset the location of the drill in working axis ...")
-                CloseWire("powerAxisUnLock")
-                sleep(RelocationWaittingTime)
-                DirectionOfPowerAxis = "SouthOrWest"
-
-                print("Reset done!")
-            elseif PowerAxisDir == "DirectionOfPowerAxis=NorthOrEast" then
-                print("Reset the location of the drill in power axis ...")
-                OpenWire("powerAxisUnLock")
-                sleep(RelocationWaittingTime)
-
-                print("Reset the location of the drill in working axis ...")
-                CloseWire("powerAxisUnLock")
-                ChangeWireState("Gearshift")
-                sleep(RelocationWaittingTime)
-                DirectionOfPowerAxis = "NorthOrEast"
-
-                print("Reset done!")
-            else
-                print("Fast resetting wrong! Perform automatic initialization")
-            end
-        end
-        print("The Automatic Initialization / Fast Resetting is done !")
-        return
-    end
-
-    
-    --Locate the drill in powerAxis
-    print("Locate the drill in power axis")
-    OpenWire("powerAxisUnLock")
-    sleep(RelocationWaittingTime)
-    ChangeWireState("Gearshift")
+    --开启上下移动离合器
+    mining_head_movement_clutch_control("on")
+    --关闭采矿头动力输入
+    mining_head_power_switch_control("off")
     sleep(0.2)
-    ChangeWireState("Gearshift")
 
-    local powerAxisStartObserver = false
-    local powerAxisEndObserver = false
-    while(true) do 
-        powerAxisStartObserver = getCurrentInputCableStage()["powerAxisStartObserver"]
-        powerAxisEndObserver = getCurrentInputCableStage()["powerAxisEndObserver"]
-        if powerAxisStartObserver == true or powerAxisEndObserver == true then
-            break
-        end
-        sleep(0.1)
+    if rotate == "clockwise" then
+        reverser_control("off")
+    elseif rotate == "counterclockwise" then
+        reverser_control("on")
     end
 
-    --Locate the drill in workAxis
-    print("Locate the drill in working axis")
-    CloseWire("powerAxisUnLock")
-    sleep(RelocationWaittingTime)
-    ChangeWireState("Gearshift")
     sleep(0.2)
-    ChangeWireState("Gearshift")
-    
-    local workAxisStartObserver = false
-    local workAxisEndObserver = false
-    while(true) do
-        workAxisStartObserver = getCurrentInputCableStage()["workAxisStartObserver"]
-        workAxisEndObserver = getCurrentInputCableStage()["workAxisEndObserver"]
-        if workAxisStartObserver == true or workAxisEndObserver == true then
-            break
-        end
-        sleep(0.1)
-    end
+    gantry_shaft_switch_control("on")
+    sleep(0.3)
+    gantry_shaft_switch_control("off")
+    sleep(mining_head_size*1)
 
-
-    --Reset the drill to the starting point
-    if powerAxisStartObserver == false then
-
-        if workAxisStartObserver == true then
-            print("result: Pow. Axis -> END  Wk. Axis -> START")
-            OpenWire("powerAxisUnLock")
-            ChangeWireState("Gearshift")
-            WaitingInputSignal("powerAxisStartObserver")
-            CloseWire("powerAxisUnLock")
-            ChangeWireState("Gearshift")
-            SettingFile:write("ChangeWireState=true\n")
-            SettingFile:write("DirectionOfPowerAxis=NorthOrEast\n")
-            SettingFile:close()
-            DirectionOfPowerAxis = "NorthOrEast"
-        end
-
-        if workAxisStartObserver == false then
-            print("result: Pow. Axis -> END  Wk. Axis -> END")
-            OpenWire("powerAxisUnLock")
-            ChangeWireState("Gearshift")
-            WaitingInputSignal("powerAxisStartObserver")
-            CloseWire("powerAxisUnLock")
-            WaitingInputSignal("workAxisStartObserver")
-            SettingFile:write("ChangeWireState=true\n")
-            SettingFile:write("DirectionOfPowerAxis=SouthOrWest\n")
-            SettingFile:close()
-            DirectionOfPowerAxis = "SouthOrWest"
-        end
-    end
-
-    if powerAxisStartObserver == true then
-
-        if workAxisStartObserver == true then
-            print("result: Pow. Axis -> START  Wk. Axis -> START")
-            SettingFile:write("ChangeWireState=false\n")
-            SettingFile:write("DirectionOfPowerAxis=SouthOrWest\n")
-            SettingFile:close()
-            DirectionOfPowerAxis = "SouthOrWest"
-        end
-
-        if workAxisStartObserver == false then
-            print("result: Pow. Axis -> START  Wk. Axis -> END")
-            ChangeWireState("Gearshift")
-            WaitingInputSignal("workAxisStartObserver")
-            SettingFile:write("ChangeWireState=false\n")
-            SettingFile:write("DirectionOfPowerAxis=NorthOrEast\n")
-            SettingFile:close()
-            DirectionOfPowerAxis = "NorthOrEast"
-        end
-    end
-
-    print("The automatic initialization is done!")
 end
 
-function CleaningEdges()
-    print("--------------------")
-    print("Cleaning Edges ...")
-    if DirectionOfPowerAxis == "SouthOrWest" then   
-        --Cleaning powerAxis edge
-        ChangeWireState("Gearshift")
-        OpenWire("powerAxisUnLock")
-        CloseWire("storageInterfaceLock")--Unlock interface to Output Items
-        WaitingInputSignal("powerAxisEndObserver")
-        OpenWire("storageInterfaceLock")--lock interface
-    
-        --Cleaning opposite edge of power axis
-        CloseWire("powerAxisUnLock")
-        WaitingInputSignal("workAxisEndObserver")
+--采矿头上下移动
+function mining_head_move_up_and_down(rotate)
+    --rotate：字符串，"clockwise"为顺时针方向移动，"counterclockwise"为逆时针方向移动，其他值则不进行任何操作
 
-        --Cleaning opposite edge of working axis
-        ChangeWireState("Gearshift")
-        OpenWire("powerAxisUnLock")
-        WaitingInputSignal("powerAxisStartObserver")
+    --开启上下移动离合器
+    mining_head_movement_clutch_control("on")
+    --关闭采矿头动力输入
+    mining_head_power_switch_control("off")
+    sleep(0.2)
 
-        --Cleaning working edge
-        CloseWire("powerAxisUnLock")
-        WaitingInputSignal("workAxisStartObserver")
+    if rotate == "clockwise" then
+        if direction == 'north' or direction == 'east' then
+            --关闭反转齿轮箱
+            reverser_control("off")
+        elseif direction == 'south' or direction == 'west' then
+            --开启反转齿轮箱
+            reverser_control("on")
+        end
+        sleep(0.2)
+        --开启采矿头动力输入
+        mining_head_power_switch_control("on")
+        sleep(0.2)
+        --关闭上下移动离合器
+        mining_head_movement_clutch_control("off")
+        sleep(mining_time)
+        mining_head_movement_clutch_control("on")
+        mining_head_power_switch_control("off")
+    elseif rotate == "counterclockwise" then
+        if direction == 'north' or direction == 'east' then
+            --开启反转齿轮箱
+            reverser_control("on")
+        elseif direction == 'south' or direction == 'west' then
+            --关闭反转齿轮箱
+            reverser_control("off")
+        end
+        sleep(0.2)
+        mining_head_power_switch_control("on")
+        sleep(0.2)
+        mining_head_movement_clutch_control("off")
+        sleep(rising_time)
+        mining_head_movement_clutch_control("on")
+        mining_head_power_switch_control("off")
     end
 
-    if DirectionOfPowerAxis == "NorthOrEast" then   
-        
-        --Cleaning powerAxis edge
-        OpenWire("powerAxisUnLock")
-        CloseWire("storageInterfaceLock")--Unlock interface to Output Items
-        WaitingInputSignal("powerAxisEndObserver")
-        OpenWire("storageInterfaceLock")--lock interface
-        
-        --Cleaning opposite edge of power axis
-        CloseWire("powerAxisUnLock")
-        sleep(0.1)--wait for the drill physicalization
-        ChangeWireState("Gearshift")
-        WaitingInputSignal("workAxisEndObserver")
-            
-        --Cleaning opposite edge of working axis
-        OpenWire("powerAxisUnLock")
-        WaitingInputSignal("powerAxisStartObserver")
-
-        --Cleaning opposite edge of working axis
-        CloseWire("powerAxisUnLock")
-        sleep(0.1)--wait for the drill physicalization
-        ChangeWireState("Gearshift")
-        WaitingInputSignal("workAxisStartObserver")
-    end
-
-    print("Done!")
 end
 
---axisDirection: "SouthOrWest" or "NorthOrEast" the direction of power axis point at (relative to starting point)
---movingDirection: "leaving" or "return"
-function MoveAlongWorkingAxis(axisDirection,movingDirection)
-
-    if axisDirection == "SouthOrWest" then
-
-        if movingDirection == "leaving" then
-            OpenWire("powerAxisUnLock")
-            sleep(PowerAxisUnLockTime)
-            CloseWire("powerAxisUnLock")
-        end
-
-        if movingDirection == "return" then
-            ChangeWireState("Gearshift")
-            OpenWire("powerAxisUnLock")
-            sleep(PowerAxisUnLockTime+0.1)
-            CloseWire("powerAxisUnLock")
-            ChangeWireState("Gearshift")
-        end
-    end
-
-    if axisDirection == "NorthOrEast" then
-
-        if movingDirection == "leaving" then
-            ChangeWireState("Gearshift")
-            OpenWire("powerAxisUnLock")
-            sleep(PowerAxisUnLockTime+0.1)
-            CloseWire("powerAxisUnLock")
-            ChangeWireState("Gearshift")
-        end
-
-        if movingDirection == "return" then
-            OpenWire("powerAxisUnLock")
-            sleep(PowerAxisUnLockTime)
-            CloseWire("powerAxisUnLock")
-        end
-    end
+--采矿框架移动，移动的格数取决于可编程齿轮箱里的设置（推荐设置为和mining_head_size相同的值）
+function mining_frame_move_forward()
+    --开启上下移动离合器
+    mining_head_movement_clutch_control("on")
+    --关闭采矿头动力输入
+    mining_head_power_switch_control("off")
+    sleep(0.2)
+    mining_frame_switch_control("on")
+    sleep(0.2)
+    mining_frame_switch_control("off")
 end
 
+--主循环
+function run()
+    --开启上下移动离合器
+    mining_head_movement_clutch_control("on")
+    --关闭采矿头动力输入
+    mining_head_power_switch_control("off")
+    sleep(0.2)
 
-function Run()
-    --!!The drill should be near to the power(in running state),use AutoInitSetting() to reset the drill to the starting point
-    CloseWire("powerAxisUnLock")
-    ChangeWireState("Gearshift")
-
-    --far away (For Work Axis)
-    local isWorkAxisEndObserverOpen = false
-    WaitingInputSignal("workAxisEndObserver")
-    if DirectionOfPowerAxis == "SouthOrWest" then
-        MoveAlongWorkingAxis("SouthOrWest","leaving")
-    else
-        MoveAlongWorkingAxis("NorthOrEast","leaving")
-    end
-    
-    --check if end
-    sleep(0.5)--wait for the ending observer signal
-    isEnd = getCurrentInputCableStage()["endPointObserver"]
-    if isEnd == true then
-        return false
-    end
-    ChangeWireState("Gearshift")
-    sleep(PowerAxisUnLockTime+0.5)--shield the signal due to moving
-
-
-    --close to (For Work Axis)
-    WaitingInputSignal("workAxisStartObserver")
-    if DirectionOfPowerAxis == "SouthOrWest" then
-        MoveAlongWorkingAxis("SouthOrWest","return")
-    else
-        MoveAlongWorkingAxis("NorthOrEast","return")
-    end
-    --check if end
-    sleep(PowerAxisUnLockTime+0.5)--shield the signal due to moving & wait for the ending observer signal
-    isEnd = getCurrentInputCableStage()["endPointObserver"]
-    if isEnd == true then
-        return false
+    --动作循环：采矿头下降 -> 采矿头上升 -> 向前移动mining_head_size格
+    loop_count = math.floor(gantry_shaft_length / mining_head_size + 1)
+    for i = 1,loop_count do
+        print("mining...")
+        mining_head_move_up_and_down("clockwise")
+        sleep(0.2)
+        print("reset mining head")
+        mining_head_move_up_and_down("counterclockwise")
+        sleep(0.2)
+        print("mining head moving...")
+        mining_head_move_along_gantry_shaft("counterclockwise")
     end
 
-    return true
+    --归位
+    for i = 1,loop_count do
+        mining_head_move_along_gantry_shaft("clockwise")
+    end
+
+    --采矿框架移动
+    mining_frame_move_forward()
+
 
 
 end
 
-
-function Main()
-    CleaningEdges()
-    print("--------------------")
-    print("Working ...")
-    while(true) do
-        local canRunNext = Run()
-        if canRunNext == false then
-            break
-        end
-    end
-end
-
-function DrillDownward()
-    OpenWire("drillDownward")
-    sleep(DrillDownardWaittingTime)
-    CloseWire("drillDownward")
-
-end
-
-function checkTermination()
-end
-
-function test()
-    AutoInitSetting()
-    Main()
-    AutoInitSetting()
-    DrillDownward()
-    sleep(0.1)
-    print("finish!")
-end
-
+--运行循环
 function START()
-    AutoInitSetting()
-    while(true) do
-        Main()
-        AutoInitSetting()
-        DrillDownward()
-        sleep(0.1)
+    loop_count = math.floor(mining_frame_length/mining_head_size) + 1
+    for i = 1,loop_count do
+        print(i," round start:")
+        run()
+        sleep(0.2)
+        print("end")
+        print("----------------")
     end
 end
-
-START()
-
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
+--测试
+----开启上下移动离合器
+--mining_head_movement_clutch_control("on")
+----关闭采矿头动力输入
+--mining_head_power_switch_control("off")
+--sleep(0.2)
+--
+--mining_head_move_up_and_down("counterclockwise")
+run()
