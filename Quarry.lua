@@ -4,6 +4,7 @@
 --采矿头/起重机：由起重机、滑轮绳索、机壳、箱子和钻头组成的采矿主体部分
 --采矿框架：采矿头+起重机杆
 --可编程齿轮箱、反转齿轮箱、无线信号终端、手摇曲柄：机械动力中的中的物品
+--末影调制调解器：cc电脑中的物品
 
 --使用说明：
 --本代码中，顺时针（"clockwise")定义为在不打开反转齿轮箱的情况下，起重机杆朝北（原点/动力输入 朝南）：
@@ -51,9 +52,13 @@ reverser = "top"
 mining_head_power_switch = "back"
 --采矿框架移动可编程齿轮箱
 mining_frame_switch = "front"
+--本机通信频道，用于在调制条机器网络中指定自己
+local_modem_channel = 99
+--无线通信频道，用于向指定端口的调制调解器广播字符串
+modem_channel = 0
 
 
---代码部分
+--代码部分：
 --辅助函数
 --反转齿轮箱控制
 function reverser_control(action)
@@ -100,8 +105,50 @@ function mining_frame_switch_control(action)
         redstone.setOutput(mining_frame_switch, false)
     end
 end
+--
+function log(msg)
+    --msg：字符串
 
---行为定义
+    --在本地打印信息
+    print(msg)
+
+    --如果有连接调制调解器，则向modem_channel指定的频道发送该消息
+    local modem = peripheral.find("modem")
+    if modem ~= nil then
+        modem.open(local_modem_channel)
+        modem.transmit(modem_channel,local_modem_channel,msg)
+    end
+end
+--如果需要有设备远程接收log方法的消息，使用以下代码将信息打印到该电脑上以及与其连接的显示器（如有）
+--receive_host.lua：
+--function receive(local_channel)
+--    --local_channel：整数，表示主机监听哪个频道
+--    local modem = peripheral.find("modem") or error("No modem attached", 0)
+--    modem.open(local_channel)
+--
+--    while true do
+--        local event, side, channel, replyChannel, message, distance = os.pullEvent("modem_message")
+--        print(message)
+--        --在显示器上打印信息（如有）
+--        local monitor = peripheral.find("monitor")
+--        if monitor ~= nil then
+--            local width,height = monitor.getSize()
+--            local cursor_x,cursor_y = monitor.getCursorPos()
+--            if cursor_y >= height then
+--                monitor.clear()
+--                monitor.setCursorPos(1, 1)
+--                cursor_x = 1
+--                cursor_y = 1
+--            end
+--            monitor.write(message)
+--            monitor.setCursorPos(1, cursor_y + 1)
+--        end
+--    end
+--end
+--receive(<监听频道号>)
+
+
+--行为定义：
 
 --采矿头沿着起重机杆移动，移动的格数取决于可编程齿轮箱里的设置（推荐设置为和mining_head_size相同的值）
 function mining_head_move_along_gantry_shaft(rotate)
@@ -185,7 +232,7 @@ function mining_frame_move_forward()
     mining_frame_switch_control("off")
 end
 
---主循环
+--主循环：
 function run()
     --开启上下移动离合器
     mining_head_movement_clutch_control("on")
@@ -196,13 +243,13 @@ function run()
     --动作循环：采矿头下降 -> 采矿头上升 -> 向前移动mining_head_size格
     loop_count = math.floor(gantry_shaft_length / mining_head_size + 1)
     for i = 1,loop_count do
-        print("mining...")
+        log("mining - (" .. tostring(i*mining_head_size) .. "/" .. tostring(gantry_shaft_length) .. ")")
         mining_head_move_up_and_down("clockwise")
         sleep(0.2)
-        print("reset mining head")
+        log("reset mining head")
         mining_head_move_up_and_down("counterclockwise")
         sleep(0.2)
-        print("mining head moving...")
+        log("mining head moving...")
         mining_head_move_along_gantry_shaft("counterclockwise")
     end
 
@@ -218,15 +265,24 @@ function run()
 
 end
 
---运行循环
+--运行循环：
 function START()
     loop_count = math.floor(mining_frame_length/mining_head_size) + 1
+    log("Start, parameters: ")
+    log("gantry_shaft_length: " .. tostring(gantry_shaft_length))
+    log("mining_head_size: " .. tostring(mining_head_size))
+    log("direction: " .. tostring(direction))
+    log("mining_time: " .. tostring(mining_time))
+    log("rising_time: " .. tostring(rising_time))
+    log("mining_frame_length: " .. tostring(mining_frame_length))
+    log("total round: " .. tostring(loop_count))
+    log("----------------")
     for i = 1,loop_count do
-        print(i," round start:")
+        log( "(" .. tostring(i) .. "/" .. tostring(loop_count) .. ")" .. " round start:")
         run()
         sleep(0.2)
-        print("end")
-        print("----------------")
+        log("end")
+        log("----------------")
     end
 end
 --测试
@@ -237,4 +293,4 @@ end
 --sleep(0.2)
 --
 --mining_head_move_up_and_down("counterclockwise")
-run()
+START()
