@@ -244,7 +244,9 @@ function mining_frame_move_forward()
 end
 
 --主循环：
-function run()
+function run(offset)
+    --offset：整数，参考选填参数中first_round_offset的解释，默认为0，该值必须是mining_head_size的倍数
+    
     --开启上下移动离合器
     mining_head_movement_clutch_control("on")
     --关闭采矿头动力输入
@@ -252,9 +254,9 @@ function run()
     sleep(0.2)
 
     --动作循环：采矿头下降 -> 采矿头上升 -> 向前移动mining_head_size格
-    loop_count = math.floor(gantry_shaft_length / mining_head_size + 1)
+    loop_count = math.floor((gantry_shaft_length - offset) / mining_head_size + 1)
     for i = 1,loop_count do
-        log("mining - (" .. tostring(i*mining_head_size) .. "/" .. tostring(gantry_shaft_length) .. ")")
+        log("mining - (" .. tostring(i*mining_head_size+offset) .. "/" .. tostring(gantry_shaft_length) .. ")")
         mining_head_move_up_and_down("clockwise")
         sleep(0.2)
         log("reset mining head")
@@ -288,17 +290,19 @@ function START()
     log("mining_frame_length: " .. tostring(mining_frame_length))
     log("total round: " .. tostring(loop_count))
     log("----------------")
-
+    
+    --从上次中断的地方开始（如有需要）
     if first_round_offset >= mining_head_size then
         log("offsetting due to first_round_offset = " .. tostring(first_round_offset))
         for i = 1,math.floor(first_round_offset/mining_head_size) do
             mining_head_move_along_gantry_shaft("counterclockwise")
         end
+        run(math.floor(first_round_offset/mining_head_size))
     end
 
     for i = 1,loop_count do
         log( "(" .. tostring(i) .. "/" .. tostring(loop_count) .. ")" .. " round start:")
-        run()
+        run(0)
         sleep(0.2)
         log("end")
         log("----------------")
