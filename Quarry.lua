@@ -289,13 +289,13 @@ function START()
     log("total round: " .. tostring(loop_count))
     log("----------------")
 
-    if first_round_offset > 0 then
+    if first_round_offset >= mining_head_size then
         log("offsetting due to first_round_offset = " .. tostring(first_round_offset))
-        for i = 1,first_round_offset do
+        for i = 1,math.floor(first_round_offset/mining_head_size) do
             mining_head_move_along_gantry_shaft("counterclockwise")
         end
     end
-    
+
     for i = 1,loop_count do
         log( "(" .. tostring(i) .. "/" .. tostring(loop_count) .. ")" .. " round start:")
         run()
