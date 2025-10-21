@@ -4,6 +4,9 @@
 --采矿头/起重机：由起重机、滑轮绳索、机壳、箱子和钻头组成的采矿主体部分
 --采矿框架：采矿头+起重机杆
 --可编程齿轮箱、反转齿轮箱、无线信号终端、手摇曲柄：机械动力中的中的物品
+--反转齿轮箱：收到红石信号时输出与输入的相反旋转方向，没有红石信号时输出与输入相同的方向
+--可编程齿轮箱：收到红石信号后开始运行齿轮箱内设定的行为
+--离合器：收到红石信号时断开连接，没有红石信号时恢复连接
 --末影调制调解器：cc电脑中的物品
 
 --使用说明：
@@ -21,7 +24,7 @@
 --重要：动力输入至少需要64rpm以上
 --重要：动力输入时需要确保旋转方向**在未启动程序之前**，元件的运动符合顺时针("clockwise")和逆时针("counterclockwise")的定义
 --重要：采矿框架的移动不会根据起重机杆的朝向进行自适应，应修改可编程齿轮箱内的旋转方向使其符合顺时针（"clockwise")和逆时针("counterclockwise")的定义
---      且采矿框架只会固定朝远离动力源的方向移动，如果需要收回采矿框架，需使用手摇曲柄
+--      且采矿框架在代码中已经假设了只会固定朝远离动力源的方向移动，如果需要收回采矿框架，需使用手摇曲柄
 
 --注意事项：
 --无论起重机杆朝向哪边，直接转动手摇曲柄时起重机都会向动力输入的方向移动
@@ -41,7 +44,9 @@ rising_time = 5
 --采矿框架长度（活塞杆的长度）
 mining_frame_length = 10
 ----------------------------
---选填参数，元件红石与电脑连接的方向，取决于 无线信号终端/红石线路 的摆放，选项为对于电脑六个面的：top,back,left,right
+--选填参数：
+--元件红石与电脑连接的方向，取决于 无线信号终端/红石线路 的摆放，选项为对于电脑六个面的：top,back,left,right,front,bottom(不建议使用)
+--注：位于bottom的无线信号终端有bug，不建议将无线信号终端置于bottom
 --起重机杆可编程齿轮箱控制位于电脑左边
 gantry_shaft_switch = "left"
 --采矿头上下移动离合器位于电脑右边
@@ -52,7 +57,13 @@ reverser = "top"
 mining_head_power_switch = "back"
 --采矿框架移动可编程齿轮箱
 mining_frame_switch = "front"
---本机通信频道，用于在调制条机器网络中指定自己
+
+--首轮采矿循环时，采矿头应该在相对于原点多少格后开始采矿，该值只能为mining_head_size的倍数，且只有第一轮生效
+--该参数一般用于从上次中断采矿的位置开始。例如，如果该值为3，那么采矿头将会从第4格开始沿着起重机杆采矿
+--如需调整采矿框架的位置，请使用手摇曲柄
+first_round_offset = 0
+
+--本机通信频道，用于在调制调解器网络中指定自己
 local_modem_channel = 99
 --无线通信频道，用于向指定端口的调制调解器广播字符串
 modem_channel = 0
@@ -145,7 +156,7 @@ end
 --        end
 --    end
 --end
---receive(<监听频道号>)
+--receive(modem_channel)
 
 
 --行为定义：
@@ -277,6 +288,14 @@ function START()
     log("mining_frame_length: " .. tostring(mining_frame_length))
     log("total round: " .. tostring(loop_count))
     log("----------------")
+
+    if first_round_offset > 0 then
+        log("offsetting due to first_round_offset = " .. tostring(first_round_offset))
+        for i = 1,first_round_offset do
+            mining_head_move_along_gantry_shaft("counterclockwise")
+        end
+    end
+    
     for i = 1,loop_count do
         log( "(" .. tostring(i) .. "/" .. tostring(loop_count) .. ")" .. " round start:")
         run()
