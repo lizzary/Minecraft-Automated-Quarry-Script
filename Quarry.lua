@@ -254,8 +254,8 @@ function run(offset)
     sleep(0.2)
 
     --动作循环：采矿头下降 -> 采矿头上升 -> 向前移动mining_head_size格
-    loop_count = math.floor((gantry_shaft_length - offset) / mining_head_size)
-    for i = 1,loop_count do
+    mining_loop_count = math.floor((gantry_shaft_length - offset) / mining_head_size)
+    for i = 1, mining_loop_count do
         log("mining - (" .. tostring(i*mining_head_size+offset) .. "/" .. tostring(gantry_shaft_length) .. ")")
         mining_head_move_up_and_down("clockwise")
         sleep(0.2)
@@ -267,7 +267,8 @@ function run(offset)
     end
 
     --归位
-    for i = 1,loop_count do
+    reset_loop_count = math.floor(gantry_shaft_length / mining_head_size)
+    for i = 1,reset_loop_count do
         mining_head_move_along_gantry_shaft("clockwise")
     end
 
@@ -280,7 +281,7 @@ end
 
 --运行循环：
 function START()
-    loop_count = math.floor(mining_frame_length/mining_head_size)
+    mining_loop_count = math.floor(mining_frame_length/mining_head_size)
     log("Start, parameters: ")
     log("gantry_shaft_length: " .. tostring(gantry_shaft_length))
     log("mining_head_size: " .. tostring(mining_head_size))
@@ -288,7 +289,7 @@ function START()
     log("mining_time: " .. tostring(mining_time))
     log("rising_time: " .. tostring(rising_time))
     log("mining_frame_length: " .. tostring(mining_frame_length))
-    log("total round: " .. tostring(loop_count))
+    log("total round: " .. tostring(mining_loop_count))
     log("----------------")
 
     --从上次中断的地方开始（如有需要）
@@ -302,8 +303,8 @@ function START()
         log("----------------")
     end
 
-    for i = 1,loop_count do
-        log( "(" .. tostring(i) .. "/" .. tostring(loop_count) .. ")" .. " round start:")
+    for i = 1, mining_loop_count do
+        log( "(" .. tostring(i) .. "/" .. tostring(mining_loop_count) .. ")" .. " round start:")
         run(0)
         sleep(0.2)
         log("end")
